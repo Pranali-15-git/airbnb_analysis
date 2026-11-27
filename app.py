@@ -115,6 +115,8 @@ st.markdown(
 
 st.title("🏡 Airbnb Listings – Data Analytics Dashboard")
 
+st.success("✅ Dashboard Loaded Successfully!")
+
 st.markdown(
     "Upload your Airbnb CSV file to explore listings, prices, availability, hosts and reviews."
 )
