@@ -5,77 +5,113 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
+# =========================================================
+# PAGE CONFIGURATION
+# =========================================================
+
 st.set_page_config(
     page_title="Airbnb Analytics Dashboard",
     page_icon="🏠",
     layout="wide"
 )
 
-# ---------------- PAGE DESIGN ----------------
+# =========================================================
+# CUSTOM DESIGN
+# =========================================================
 
 st.markdown("""
 <style>
+
 .stApp {
-    background-color: #F5F7FB;
+    background-color: #F4F7FB;
 }
-[data-testid="stMetric"] {
-    background: white;
-    padding: 18px;
-    border-radius: 14px;
-    border: 1px solid #E5E7EB;
-}
+
 h1 {
+    color: #172554;
+}
+
+h2, h3 {
     color: #1E293B;
 }
+
+[data-testid="stMetric"] {
+    background-color: white;
+    border: 1px solid #E2E8F0;
+    padding: 18px;
+    border-radius: 15px;
+    box-shadow: 0px 2px 6px rgba(0,0,0,0.04);
+}
+
+[data-testid="stSidebar"] {
+    background-color: #EAF0F8;
+}
+
+div[data-testid="stPlotlyChart"] {
+    background-color: white;
+    border-radius: 12px;
+    padding: 8px;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🏠 Airbnb Analytics Dashboard")
-st.markdown("### Explore listing, pricing, host, availability and review insights")
+# =========================================================
+# TITLE
+# =========================================================
 
-# ---------------- FILE UPLOAD ----------------
+st.title("🏠 Airbnb Analytics Dashboard")
+
+st.markdown(
+    "Interactive dashboard for exploring Airbnb listings, "
+    "pricing, neighbourhoods, hosts, reviews and availability."
+)
+
+# =========================================================
+# FILE UPLOAD
+# =========================================================
+
+st.sidebar.header("📂 Upload Dataset")
 
 uploaded_file = st.sidebar.file_uploader(
-    "📁 Upload Airbnb Dataset",
+    "Upload Airbnb CSV File",
     type=["csv"]
 )
 
 if uploaded_file is None:
-    st.info("👈 Upload your Airbnb CSV file from the sidebar to start.")
+    st.info("👈 Upload your Airbnb CSV file to view the dashboard.")
     st.stop()
+
+# =========================================================
+# LOAD DATA
+# =========================================================
 
 @st.cache_data
 def load_data(file):
-    data = pd.read_csv(file, low_memory=False)
 
-    # Rename columns
-    data.columns = data.columns.str.strip()
+    df = pd.read_csv(file, low_memory=False)
 
-    data = data.rename(columns={
-        "host id": "host_id",
-        "host name": "host_name",
-        "neighbourhood group": "neighbourhood_group",
-        "room type": "room_type",
-        "Construction year": "Construction_year",
-        "service fee": "service_fee",
-        "minimum nights": "minimum_nights",
-        "number of reviews": "number_of_reviews",
-        "last review": "last_review",
-        "reviews per month": "reviews_per_month",
-        "review rate number": "review_rate_number",
-        "calculated host listings count":
-            "calculated_host_listings_count",
-        "availability 365": "availability_365"
-    })
+    # Standardize column names
+    df.columns = (
+        df.columns
+        .str.strip()
+        .str.lower()
+        .str.replace(" ", "_")
+    )
 
-    # Remove unnecessary columns if present
-    data = data.drop(
-        columns=["id", "lat", "long", "country code", "house_rules"],
+    # Remove unnecessary columns
+    df = df.drop(
+        columns=[
+            "id",
+            "lat",
+            "long",
+            "country_code",
+            "house_rules"
+        ],
         errors="ignore"
     )
 
-    # Clean numeric columns
-    numeric_cols = [
+    # Convert numeric columns
+    numeric_columns = [
         "price",
         "service_fee",
         "minimum_nights",
@@ -84,21 +120,27 @@ def load_data(file):
         "review_rate_number",
         "calculated_host_listings_count",
         "availability_365",
-        "Construction_year"
+        "construction_year"
     ]
 
-    for col in numeric_cols:
-        if col in data.columns:
-            data[col] = (
-                data[col]
+    for col in numeric_columns:
+
+        if col in df.columns:
+
+            df[col] = (
+                df[col]
                 .astype(str)
                 .str.replace(r"[$,]", "", regex=True)
             )
-            data[col] = pd.to_numeric(data[col], errors="coerce")
+
+            df[col] = pd.to_numeric(
+                df[col],
+                errors="coerce"
+            )
 
     # Clean text columns
-    text_cols = [
-        "NAME",
+    text_columns = [
+        "name",
         "host_name",
         "neighbourhood_group",
         "neighbourhood",
@@ -110,126 +152,165 @@ def load_data(file):
         "license"
     ]
 
-    for col in text_cols:
-        if col in data.columns:
-            data[col] = data[col].fillna("Unknown").astype(str)
+    for col in text_columns:
 
-    # Standardize neighbourhood group
-    if "neighbourhood_group" in data.columns:
-        data["neighbourhood_group"] = (
-            data["neighbourhood_group"]
+        if col in df.columns:
+
+            df[col] = (
+                df[col]
+                .fillna("Unknown")
+                .astype(str)
+                .str.strip()
+            )
+
+    # Fix neighbourhood group spelling
+    if "neighbourhood_group" in df.columns:
+
+        df["neighbourhood_group"] = (
+            df["neighbourhood_group"]
             .replace({
                 "brookln": "Brooklyn",
                 "manhatan": "Manhattan"
             })
         )
 
-    # Dates
-    if "last_review" in data.columns:
-        data["last_review"] = pd.to_datetime(
-            data["last_review"],
+    # Convert review date
+    if "last_review" in df.columns:
+
+        df["last_review"] = pd.to_datetime(
+            df["last_review"],
             errors="coerce"
         )
 
-        data["Year"] = data["last_review"].dt.year
-        data["Month"] = data["last_review"].dt.month_name()
+        df["review_year"] = df["last_review"].dt.year
 
-    return data
+        df["review_month"] = (
+            df["last_review"].dt.month_name()
+        )
+
+    return df
 
 
 df = load_data(uploaded_file)
 
-# ---------------- SIDEBAR FILTERS ----------------
+# =========================================================
+# SIDEBAR FILTERS
+# =========================================================
 
-st.sidebar.header("🎛️ Dashboard Filters")
+st.sidebar.markdown("---")
+st.sidebar.header("🎛️ Filters")
 
 filtered_df = df.copy()
 
+# Neighbourhood group
 if "neighbourhood_group" in df.columns:
-    groups = sorted(df["neighbourhood_group"].dropna().unique())
+
+    group_options = sorted(
+        df["neighbourhood_group"].dropna().unique()
+    )
 
     selected_groups = st.sidebar.multiselect(
         "Neighbourhood Group",
-        groups,
-        default=groups
+        group_options,
+        default=group_options
     )
 
     filtered_df = filtered_df[
-        filtered_df["neighbourhood_group"].isin(selected_groups)
+        filtered_df["neighbourhood_group"].isin(
+            selected_groups
+        )
     ]
 
+# Room type
 if "room_type" in df.columns:
-    rooms = sorted(df["room_type"].dropna().unique())
+
+    room_options = sorted(
+        df["room_type"].dropna().unique()
+    )
 
     selected_rooms = st.sidebar.multiselect(
         "Room Type",
-        rooms,
-        default=rooms
+        room_options,
+        default=room_options
     )
 
     filtered_df = filtered_df[
         filtered_df["room_type"].isin(selected_rooms)
     ]
 
+# Host verification
 if "host_identity_verified" in df.columns:
-    verified = sorted(
+
+    verification_options = sorted(
         df["host_identity_verified"].dropna().unique()
     )
 
-    selected_verified = st.sidebar.multiselect(
+    selected_verification = st.sidebar.multiselect(
         "Host Verification",
-        verified,
-        default=verified
+        verification_options,
+        default=verification_options
     )
 
     filtered_df = filtered_df[
-        filtered_df["host_identity_verified"].isin(selected_verified)
+        filtered_df["host_identity_verified"].isin(
+            selected_verification
+        )
     ]
 
+# Cancellation policy
 if "cancellation_policy" in df.columns:
-    policies = sorted(
+
+    cancellation_options = sorted(
         df["cancellation_policy"].dropna().unique()
     )
 
-    selected_policy = st.sidebar.multiselect(
+    selected_cancellation = st.sidebar.multiselect(
         "Cancellation Policy",
-        policies,
-        default=policies
+        cancellation_options,
+        default=cancellation_options
     )
 
     filtered_df = filtered_df[
-        filtered_df["cancellation_policy"].isin(selected_policy)
+        filtered_df["cancellation_policy"].isin(
+            selected_cancellation
+        )
     ]
 
 st.sidebar.markdown("---")
 
 st.sidebar.metric(
-    "Filtered Records",
+    "Filtered Listings",
     f"{len(filtered_df):,}"
 )
 
-# ---------------- KPI CARDS ----------------
+# =========================================================
+# KPI CARDS
+# =========================================================
 
 total_listings = len(filtered_df)
 
 avg_price = (
     filtered_df["price"].mean()
-    if "price" in filtered_df.columns else 0
+    if "price" in filtered_df.columns
+    else 0
 )
 
 avg_availability = (
     filtered_df["availability_365"].mean()
-    if "availability_365" in filtered_df.columns else 0
+    if "availability_365" in filtered_df.columns
+    else 0
 )
 
 total_hosts = (
     filtered_df["host_id"].nunique()
-    if "host_id" in filtered_df.columns else 0
+    if "host_id" in filtered_df.columns
+    else 0
 )
 
 total_reviews = (
     filtered_df["number_of_reviews"].sum()
-    if "number_of_reviews" in filtered_df.columns else 0
+    if "number_of_reviews" in filtered_df.columns
+    else 0
 )
 
 c1, c2, c3, c4, c5 = st.columns(5)
@@ -242,39 +323,82 @@ c5.metric("⭐ Total Reviews", f"{total_reviews:,.0f}")
 
 st.markdown("---")
 
-# ---------------- DROPDOWN PARAMETER ----------------
+# =========================================================
+# DYNAMIC PARAMETER DROPDOWN
+# =========================================================
 
-st.subheader("🔍 Explore Dataset")
+st.header("📊 Dynamic Parameter Analysis")
 
-available_parameters = [
-    col for col in [
-        "price",
-        "service_fee",
-        "minimum_nights",
-        "number_of_reviews",
-        "reviews_per_month",
-        "review_rate_number",
-        "availability_365",
-        "calculated_host_listings_count",
-        "Construction_year"
-    ]
-    if col in filtered_df.columns
+numeric_parameters = [
+    col for col in filtered_df.select_dtypes(
+        include=np.number
+    ).columns
+    if filtered_df[col].nunique() > 1
 ]
 
-parameter = st.selectbox(
-    "Select Parameter to Explore",
-    available_parameters
+if len(numeric_parameters) == 0:
+    st.warning("No numeric columns available for analysis.")
+    st.stop()
+
+selected_parameter = st.selectbox(
+    "🎯 Select Parameter",
+    numeric_parameters,
+    index=(
+        numeric_parameters.index("price")
+        if "price" in numeric_parameters
+        else 0
+    )
 )
+
+st.markdown(
+    f"### Analysis for: **{selected_parameter.replace('_', ' ').title()}**"
+)
+
+parameter_data = filtered_df[
+    selected_parameter
+].dropna()
+
+# =========================================================
+# DYNAMIC KPI
+# =========================================================
+
+p1, p2, p3, p4 = st.columns(4)
+
+p1.metric(
+    f"Average {selected_parameter.title()}",
+    f"{parameter_data.mean():,.2f}"
+)
+
+p2.metric(
+    f"Median {selected_parameter.title()}",
+    f"{parameter_data.median():,.2f}"
+)
+
+p3.metric(
+    f"Maximum {selected_parameter.title()}",
+    f"{parameter_data.max():,.2f}"
+)
+
+p4.metric(
+    f"Minimum {selected_parameter.title()}",
+    f"{parameter_data.min():,.2f}"
+)
+
+# =========================================================
+# DYNAMIC GRAPHS
+# =========================================================
 
 col1, col2 = st.columns(2)
 
+# Distribution graph
 with col1:
+
     fig = px.histogram(
         filtered_df,
-        x=parameter,
+        x=selected_parameter,
         nbins=40,
         marginal="box",
-        title=f"Distribution of {parameter}",
+        title=f"{selected_parameter.title()} Distribution",
         color_discrete_sequence=["#636EFA"]
     )
 
@@ -283,21 +407,34 @@ with col1:
         height=450
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
 
+# Parameter by room type
 with col2:
+
     if "room_type" in filtered_df.columns:
-        parameter_room = filtered_df.groupby(
-            "room_type", as_index=False
-        )[parameter].mean()
+
+        room_parameter = (
+            filtered_df.groupby("room_type")
+            [selected_parameter]
+            .mean()
+            .reset_index()
+            .sort_values(
+                selected_parameter,
+                ascending=False
+            )
+        )
 
         fig = px.bar(
-            parameter_room,
+            room_parameter,
             x="room_type",
-            y=parameter,
+            y=selected_parameter,
             color="room_type",
-            title=f"Average {parameter} by Room Type",
-            text_auto=".2f"
+            text_auto=".2f",
+            title=f"Average {selected_parameter.title()} by Room Type"
         )
 
         fig.update_layout(
@@ -305,18 +442,138 @@ with col2:
             height=450
         )
 
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
 
-# ---------------- LOCATION ANALYSIS ----------------
+# Parameter by neighbourhood group
+col1, col2 = st.columns(2)
+
+with col1:
+
+    if "neighbourhood_group" in filtered_df.columns:
+
+        group_parameter = (
+            filtered_df.groupby("neighbourhood_group")
+            [selected_parameter]
+            .mean()
+            .reset_index()
+            .sort_values(
+                selected_parameter,
+                ascending=False
+            )
+        )
+
+        fig = px.bar(
+            group_parameter,
+            x="neighbourhood_group",
+            y=selected_parameter,
+            color=selected_parameter,
+            text_auto=".2f",
+            title=f"Average {selected_parameter.title()} by Neighbourhood Group",
+            color_continuous_scale="Viridis"
+        )
+
+        fig.update_layout(
+            template="plotly_white",
+            height=450
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
+
+with col2:
+
+    if "neighbourhood" in filtered_df.columns:
+
+        neighbourhood_parameter = (
+            filtered_df.groupby("neighbourhood")
+            [selected_parameter]
+            .mean()
+            .nlargest(10)
+            .reset_index()
+        )
+
+        fig = px.bar(
+            neighbourhood_parameter,
+            x=selected_parameter,
+            y="neighbourhood",
+            orientation="h",
+            color=selected_parameter,
+            text_auto=".2f",
+            title=f"Top 10 Neighbourhoods by {selected_parameter.title()}",
+            color_continuous_scale="Plasma"
+        )
+
+        fig.update_layout(
+            template="plotly_white",
+            height=450,
+            yaxis={
+                "categoryorder": "total ascending"
+            }
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
+
+# =========================================================
+# PARAMETER VS REVIEWS SCATTER PLOT
+# =========================================================
+
+if "number_of_reviews" in filtered_df.columns:
+
+    st.subheader("📈 Parameter vs Number of Reviews")
+
+    fig = px.scatter(
+        filtered_df,
+        x=selected_parameter,
+        y="number_of_reviews",
+        color=(
+            "room_type"
+            if "room_type" in filtered_df.columns
+            else None
+        ),
+        hover_data=[
+            c for c in [
+                "neighbourhood",
+                "host_name",
+                "price"
+            ]
+            if c in filtered_df.columns
+        ],
+        title=f"{selected_parameter.title()} vs Number of Reviews",
+        opacity=0.6
+    )
+
+    fig.update_layout(
+        template="plotly_white",
+        height=500
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+# =========================================================
+# LOCATION ANALYSIS
+# =========================================================
 
 st.markdown("---")
 st.header("📍 Location & Listings Analysis")
 
 col1, col2 = st.columns(2)
 
-if "neighbourhood_group" in filtered_df.columns:
+# Listings by neighbourhood group
+with col1:
 
-    with col1:
+    if "neighbourhood_group" in filtered_df.columns:
+
         group_count = (
             filtered_df["neighbourhood_group"]
             .value_counts()
@@ -336,11 +593,21 @@ if "neighbourhood_group" in filtered_df.columns:
             title="Listings by Neighbourhood Group"
         )
 
-        st.plotly_chart(fig, use_container_width=True)
+        fig.update_layout(
+            template="plotly_white",
+            height=450
+        )
 
-if "neighbourhood" in filtered_df.columns:
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
 
-    with col2:
+# Top 10 neighbourhoods
+with col2:
+
+    if "neighbourhood" in filtered_df.columns:
+
         top_neighbourhood = (
             filtered_df["neighbourhood"]
             .value_counts()
@@ -359,28 +626,37 @@ if "neighbourhood" in filtered_df.columns:
             y="Neighbourhood",
             orientation="h",
             color="Listings",
-            title="Top 10 Neighbourhoods by Listings",
             text="Listings",
+            title="Top 10 Neighbourhoods by Listings",
             color_continuous_scale="Viridis"
         )
 
         fig.update_layout(
-            yaxis={"categoryorder": "total ascending"},
-            template="plotly_white"
+            template="plotly_white",
+            height=450,
+            yaxis={
+                "categoryorder": "total ascending"
+            }
         )
 
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
 
-# ---------------- PRICE ANALYSIS ----------------
+# =========================================================
+# PRICE ANALYSIS
+# =========================================================
 
 st.markdown("---")
-st.header("💰 Pricing Analysis")
+st.header("💰 Price Analysis")
 
 col1, col2 = st.columns(2)
 
 if "price" in filtered_df.columns:
 
     with col1:
+
         fig = px.histogram(
             filtered_df,
             x="price",
@@ -389,15 +665,24 @@ if "price" in filtered_df.columns:
             color_discrete_sequence=["#00CC96"]
         )
 
-        fig.update_layout(template="plotly_white")
-        st.plotly_chart(fig, use_container_width=True)
+        fig.update_layout(
+            template="plotly_white",
+            height=450
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
 
     with col2:
+
         if "neighbourhood_group" in filtered_df.columns:
 
             neighbourhood_price = (
                 filtered_df.groupby("neighbourhood_group")
-                ["price"].mean()
+                ["price"]
+                .mean()
                 .sort_values(ascending=False)
                 .reset_index()
             )
@@ -412,13 +697,21 @@ if "price" in filtered_df.columns:
                 color_continuous_scale="Plasma"
             )
 
-            fig.update_layout(template="plotly_white")
-            st.plotly_chart(fig, use_container_width=True)
+            fig.update_layout(
+                template="plotly_white",
+                height=450
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True
+            )
 
     if "room_type" in filtered_df.columns:
 
         room_price = (
-            filtered_df.groupby("room_type")["price"]
+            filtered_df.groupby("room_type")
+            ["price"]
             .mean()
             .reset_index()
         )
@@ -432,9 +725,18 @@ if "price" in filtered_df.columns:
             text_auto=".2f"
         )
 
-        st.plotly_chart(fig, use_container_width=True)
+        fig.update_layout(
+            template="plotly_white"
+        )
 
-# ---------------- ROOM TYPE ----------------
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
+
+# =========================================================
+# ROOM TYPE ANALYSIS
+# =========================================================
 
 st.markdown("---")
 st.header("🛏️ Room Type Analysis")
@@ -447,7 +749,10 @@ if "room_type" in filtered_df.columns:
         .reset_index()
     )
 
-    room_count.columns = ["Room Type", "Listings"]
+    room_count.columns = [
+        "Room Type",
+        "Listings"
+    ]
 
     fig = px.pie(
         room_count,
@@ -458,9 +763,19 @@ if "room_type" in filtered_df.columns:
         color_discrete_sequence=px.colors.qualitative.Set2
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    fig.update_layout(
+        template="plotly_white",
+        height=450
+    )
 
-# ---------------- AVAILABILITY ----------------
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+# =========================================================
+# AVAILABILITY ANALYSIS
+# =========================================================
 
 st.markdown("---")
 st.header("📅 Availability Analysis")
@@ -470,6 +785,7 @@ col1, col2 = st.columns(2)
 if "availability_365" in filtered_df.columns:
 
     with col1:
+
         fig = px.histogram(
             filtered_df,
             x="availability_365",
@@ -478,14 +794,24 @@ if "availability_365" in filtered_df.columns:
             color_discrete_sequence=["#AB63FA"]
         )
 
-        st.plotly_chart(fig, use_container_width=True)
+        fig.update_layout(
+            template="plotly_white",
+            height=450
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
 
     with col2:
+
         if "neighbourhood_group" in filtered_df.columns:
 
             availability_group = (
                 filtered_df.groupby("neighbourhood_group")
-                ["availability_365"].mean()
+                ["availability_365"]
+                .mean()
                 .reset_index()
             )
 
@@ -494,16 +820,29 @@ if "availability_365" in filtered_df.columns:
                 x="neighbourhood_group",
                 y="availability_365",
                 color="neighbourhood_group",
-                title="Average Availability by Group",
-                text_auto=".2f"
+                text_auto=".2f",
+                title="Average Availability by Group"
             )
 
-            st.plotly_chart(fig, use_container_width=True)
+            fig.update_layout(
+                template="plotly_white",
+                height=450
+            )
 
-if "Month" in filtered_df.columns:
+            st.plotly_chart(
+                fig,
+                use_container_width=True
+            )
+
+# Review month availability
+if (
+    "review_month" in filtered_df.columns
+    and "availability_365" in filtered_df.columns
+):
 
     monthly_availability = (
-        filtered_df.groupby("Month")["availability_365"]
+        filtered_df.groupby("review_month")
+        ["availability_365"]
         .mean()
         .reset_index()
     )
@@ -514,26 +853,36 @@ if "Month" in filtered_df.columns:
         "September", "October", "November", "December"
     ]
 
-    monthly_availability["Month"] = pd.Categorical(
-        monthly_availability["Month"],
+    monthly_availability["review_month"] = pd.Categorical(
+        monthly_availability["review_month"],
         categories=month_order,
         ordered=True
     )
 
-    monthly_availability = monthly_availability.sort_values("Month")
+    monthly_availability = (
+        monthly_availability.sort_values("review_month")
+    )
 
     fig = px.line(
         monthly_availability,
-        x="Month",
+        x="review_month",
         y="availability_365",
         markers=True,
         title="Average Availability by Review Month"
     )
 
-    fig.update_layout(template="plotly_white")
-    st.plotly_chart(fig, use_container_width=True)
+    fig.update_layout(
+        template="plotly_white"
+    )
 
-# ---------------- HOST ANALYSIS ----------------
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+# =========================================================
+# HOST ANALYSIS
+# =========================================================
 
 st.markdown("---")
 st.header("👤 Host Analysis")
@@ -543,6 +892,7 @@ col1, col2 = st.columns(2)
 if "host_name" in filtered_df.columns:
 
     with col1:
+
         top_hosts = (
             filtered_df["host_name"]
             .value_counts()
@@ -550,7 +900,10 @@ if "host_name" in filtered_df.columns:
             .reset_index()
         )
 
-        top_hosts.columns = ["Host", "Listings"]
+        top_hosts.columns = [
+            "Host",
+            "Listings"
+        ]
 
         fig = px.bar(
             top_hosts,
@@ -563,65 +916,108 @@ if "host_name" in filtered_df.columns:
         )
 
         fig.update_layout(
-            yaxis={"categoryorder": "total ascending"}
+            template="plotly_white",
+            yaxis={
+                "categoryorder": "total ascending"
+            }
         )
 
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
 
     with col2:
-        host_reviews = (
-            filtered_df.groupby("host_name")
-            ["number_of_reviews"].sum()
-            .nlargest(10)
-            .reset_index()
-        )
 
-        host_reviews.columns = ["Host", "Reviews"]
+        if "number_of_reviews" in filtered_df.columns:
 
-        fig = px.bar(
-            host_reviews,
-            x="Host",
-            y="Reviews",
-            title="Top Hosts by Total Reviews",
-            color="Reviews"
-        )
+            host_reviews = (
+                filtered_df.groupby("host_name")
+                ["number_of_reviews"]
+                .sum()
+                .nlargest(10)
+                .reset_index()
+            )
 
-        st.plotly_chart(fig, use_container_width=True)
+            host_reviews.columns = [
+                "Host",
+                "Reviews"
+            ]
 
-if "host_identity_verified" in filtered_df.columns:
+            fig = px.bar(
+                host_reviews,
+                x="Host",
+                y="Reviews",
+                color="Reviews",
+                title="Top Hosts by Total Reviews"
+            )
+
+            fig.update_layout(
+                template="plotly_white"
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True
+            )
+
+# Host verification
+if (
+    "host_identity_verified" in filtered_df.columns
+    and "price" in filtered_df.columns
+):
 
     verified_data = (
         filtered_df.groupby("host_identity_verified")
-        [["price", "review_rate_number"]]
+        ["price"]
         .mean()
         .reset_index()
     )
 
-    col1, col2 = st.columns(2)
+    fig = px.bar(
+        verified_data,
+        x="host_identity_verified",
+        y="price",
+        color="host_identity_verified",
+        title="Verified vs Non-Verified Hosts - Average Price",
+        text_auto=".2f"
+    )
 
-    with col1:
-        fig = px.bar(
-            verified_data,
-            x="host_identity_verified",
-            y="price",
-            color="host_identity_verified",
-            title="Verified Hosts vs Average Price"
-        )
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
 
-        st.plotly_chart(fig, use_container_width=True)
+# Ratings by verification
+if (
+    "host_identity_verified" in filtered_df.columns
+    and "review_rate_number" in filtered_df.columns
+):
 
-    with col2:
-        fig = px.bar(
-            verified_data,
-            x="host_identity_verified",
-            y="review_rate_number",
-            color="host_identity_verified",
-            title="Verified Hosts vs Average Rating"
-        )
+    verified_rating = (
+        filtered_df.groupby("host_identity_verified")
+        ["review_rate_number"]
+        .mean()
+        .reset_index()
+    )
 
-        st.plotly_chart(fig, use_container_width=True)
+    fig = px.bar(
+        verified_rating,
+        x="host_identity_verified",
+        y="review_rate_number",
+        color="host_identity_verified",
+        title="Host Verification vs Average Rating",
+        text_auto=".2f"
+    )
 
-# ---------------- CUSTOMER PREFERENCES ----------------
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+# =========================================================
+# CUSTOMER PREFERENCES
+# =========================================================
 
 st.markdown("---")
 st.header("⭐ Customer Preferences")
@@ -631,28 +1027,37 @@ col1, col2 = st.columns(2)
 if "number_of_reviews" in filtered_df.columns:
 
     with col1:
-        room_reviews = (
-            filtered_df.groupby("room_type")
-            ["number_of_reviews"].mean()
-            .reset_index()
-        )
 
-        fig = px.bar(
-            room_reviews,
-            x="room_type",
-            y="number_of_reviews",
-            color="room_type",
-            title="Average Reviews by Room Type"
-        )
+        if "room_type" in filtered_df.columns:
 
-        st.plotly_chart(fig, use_container_width=True)
+            room_reviews = (
+                filtered_df.groupby("room_type")
+                ["number_of_reviews"]
+                .mean()
+                .reset_index()
+            )
+
+            fig = px.bar(
+                room_reviews,
+                x="room_type",
+                y="number_of_reviews",
+                color="room_type",
+                title="Average Reviews by Room Type"
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True
+            )
 
     with col2:
+
         if "neighbourhood" in filtered_df.columns:
 
             top_reviews = (
                 filtered_df.groupby("neighbourhood")
-                ["number_of_reviews"].sum()
+                ["number_of_reviews"]
+                .sum()
                 .nlargest(10)
                 .reset_index()
             )
@@ -667,12 +1072,19 @@ if "number_of_reviews" in filtered_df.columns:
             )
 
             fig.update_layout(
-                yaxis={"categoryorder": "total ascending"}
+                yaxis={
+                    "categoryorder": "total ascending"
+                }
             )
 
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(
+                fig,
+                use_container_width=True
+            )
 
-# ---------------- CORRELATION ----------------
+# =========================================================
+# CORRELATION ANALYSIS
+# =========================================================
 
 st.markdown("---")
 st.header("📊 Correlation Analysis")
@@ -689,16 +1101,19 @@ correlation_columns = [
 ]
 
 correlation_columns = [
-    c for c in correlation_columns
-    if c in filtered_df.columns
+    col for col in correlation_columns
+    if col in filtered_df.columns
 ]
 
 if len(correlation_columns) > 1:
 
-    corr = filtered_df[correlation_columns].corr()
+    correlation = (
+        filtered_df[correlation_columns]
+        .corr()
+    )
 
     fig = px.imshow(
-        corr,
+        correlation,
         text_auto=".2f",
         color_continuous_scale="RdBu",
         zmin=-1,
@@ -706,9 +1121,19 @@ if len(correlation_columns) > 1:
         title="Correlation Heatmap"
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    fig.update_layout(
+        template="plotly_white",
+        height=600
+    )
 
-# ---------------- PRICE OUTLIERS ----------------
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+# =========================================================
+# OUTLIER ANALYSIS
+# =========================================================
 
 st.markdown("---")
 st.header("🚨 Outlier Analysis")
@@ -718,28 +1143,39 @@ if "price" in filtered_df.columns:
     col1, col2 = st.columns(2)
 
     with col1:
+
         fig = px.box(
             filtered_df,
             y="price",
+            points="outliers",
             title="Price Outlier Detection"
         )
 
-        st.plotly_chart(fig, use_container_width=True)
+        fig.update_layout(
+            template="plotly_white"
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
 
     with col2:
+
         expensive = (
-            filtered_df.nlargest(10, "price")
+            filtered_df
+            .nlargest(10, "price")
         )
 
         display_columns = [
-            c for c in [
-                "NAME",
+            col for col in [
+                "name",
                 "host_name",
                 "neighbourhood",
                 "room_type",
                 "price"
             ]
-            if c in expensive.columns
+            if col in expensive.columns
         ]
 
         st.subheader("Top 10 Expensive Listings")
@@ -749,10 +1185,12 @@ if "price" in filtered_df.columns:
             use_container_width=True
         )
 
-# ---------------- DATA TABLE ----------------
+# =========================================================
+# DATA TABLE
+# =========================================================
 
 st.markdown("---")
-st.header("📄 Filtered Dataset")
+st.header("📋 Dataset View")
 
 st.dataframe(
     filtered_df,
@@ -760,13 +1198,59 @@ st.dataframe(
     height=400
 )
 
-csv = filtered_df.to_csv(index=False).encode("utf-8")
+# =========================================================
+# DOWNLOAD FILTERED DATA
+# =========================================================
+
+csv_data = filtered_df.to_csv(
+    index=False
+).encode("utf-8")
 
 st.download_button(
-    "📥 Download Filtered CSV",
-    csv,
-    "filtered_airbnb.csv",
-    "text/csv"
+    label="📥 Download Filtered Dataset",
+    data=csv_data,
+    file_name="filtered_airbnb_dataset.csv",
+    mime="text/csv"
+)
+
+# =========================================================
+# FOOTER
+# =========================================================
+
+st.markdown("---")
+
+st.markdown(
+    """
+    <div style="text-align:center; color:gray;">
+    🏠 Airbnb Analytics Dashboard | Built with Python, Streamlit & Plotly
+    </div>
+    """,
+    unsafe_allow_html=True
 )
 
 st.success("Dashboard Loaded Successfully! 🎉")
+
+
+
+
+
+
+        
+
+
+
+          
+  
+
+ 
+           
+
+           
+
+
+       
+  
+          
+           
+      
+ 
